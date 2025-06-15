@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const connectDB = require('./db');
 const app = express();
-const port = process.env.PORT;
+const port = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
@@ -23,6 +23,6 @@ const indexRouter = require('./router/index.route');
 app.use('/', indexRouter);
 
 
-app.listen(port, () => {
+app.listen(port,'0.0.0.0', () => {
   console.log(`Server running on http://localhost:${port}`);
 });
