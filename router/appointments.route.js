@@ -12,10 +12,5 @@ router.delete('/deleteAppointment/:id',authMiddleware, appointmentsController.de
 router.get('/allAppointmentDetails', appointmentsController.allAppointments);
 router.put('/updateStatus/:id', authMiddleware, appointmentsController.updateAppointmentStatus);
 
-// router.get('/users/notifications', authMiddleware, async (req, res) => {
-//   const user = await User.findById(req.user.userId);
-//   res.json({ notifications: user.notifications });
-// });
-
 
 module.exports=router

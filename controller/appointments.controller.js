@@ -118,77 +118,87 @@ exports.updateAppointmentStatus = async (req, res) => {
       return res.status(400).json({ message: 'Cannot update an already approved appointment' });
     }
 
-    // Update status
-    appointment.status = status;
-
- const formattedDate = new Date(appointment.date).toLocaleString('en-IN', {
+    // Format date for notification
+    const formattedDate = new Date(appointment.date).toLocaleString('en-IN', {
       dateStyle: 'medium',
       timeStyle: 'short',
       timeZone: 'Asia/Kolkata'
     });
 
-    // For 'Approved' status: add reminder and push to user.approvedAppointments
+    const user = await User.findById(appointment.user._id);
+
+    // === Handle Approval ===
     if (status === 'Approved') {
-      const now = new Date();
       const reminderDate = new Date(appointment.date);
-      reminderDate.setHours(reminderDate.getHours() - 24); // 24h before appointment
+      reminderDate.setHours(reminderDate.getHours() - 24);
       appointment.reminder = reminderDate;
+      appointment.status = 'Approved';
 
       await appointment.save();
 
-      const user = await User.findById(appointment.user._id);
-      user.approvedAppointments.push(appointment._id);
+      if (!user.approvedAppointments.includes(appointment._id)) {
+        user.approvedAppointments.push(appointment._id);
+      }
+
       user.notifications.push({
         message: `✅ Your appointment with Dr. ${appointment.doctor} is approved for ${formattedDate}.`
       });
+
       await user.save();
 
       if (user.email) {
         sendNotificationToUser(user.email, `✅ Your appointment with Dr. ${appointment.doctor} is approved for ${formattedDate}.`);
       }
+    }
 
-    } else if (status === 'Booking Rejected') {
-      const user = await User.findById(appointment.user._id);
+    // === Handle Rejection ===
+    else if (status === 'Booking Rejected') {
+      appointment.status = 'Booking Rejected';
+      await appointment.save();
 
-      // Remove from appointments and push to cancelled
+      // Remove from main appointments if present
       user.appointments.pull(appointment._id);
-      user.cancelledAppointments.push(appointment._id);
+
+      if (!user.cancelledAppointments.includes(appointment._id)) {
+        user.cancelledAppointments.push(appointment._id);
+      }
+
       user.notifications.push({
-        message: ` Your appointment with Dr. ${appointment.doctor} on ${formattedDate} has been rejected.`
+        message: `❌ Your appointment with Dr. ${appointment.doctor} on ${formattedDate} has been rejected.`
       });
 
       await user.save();
-      await Appointments.findByIdAndDelete(id); // Delete actual appointment
 
       if (user.email) {
-        sendNotificationToUser(user.email, ` Your appointment with Dr. ${appointment.doctor} on ${formattedDate} has been rejected.`);
+        sendNotificationToUser(user.email, `❌ Your appointment with Dr. ${appointment.doctor} on ${formattedDate} has been rejected.`);
       }
 
-      return res.status(200).json({ message: 'Appointment rejected and removed from user list' });
-    } else {
+      return res.status(200).json({ message: 'Appointment rejected and moved to cancelled list', appointment });
+    }
+
+    // === Handle Other Status Updates ===
+    else {
+      appointment.status = status;
       await appointment.save();
-      const user = await User.findById(appointment.user._id);
 
-  // Add a generic notification message for other status changes
-  user.notifications.push({
-    message: `ℹ️ The status of your appointment with Dr. ${appointment.doctor} on ${formattedDate} has been updated to "${status}".`
-  });
+      user.notifications.push({
+        message: `ℹ️ The status of your appointment with Dr. ${appointment.doctor} on ${formattedDate} has been updated to "${status}".`
+      });
 
-  await user.save();
+      await user.save();
 
-  if (user.email) {
-    sendNotificationToUser(user.email, `ℹ️ The status of your appointment with Dr. ${appointment.doctor} on ${formattedDate} has been updated to "${status}".`);
-  }
-
-      
+      if (user.email) {
+        sendNotificationToUser(user.email, `ℹ️ The status of your appointment with Dr. ${appointment.doctor} on ${formattedDate} has been updated to "${status}".`);
+      }
     }
 
     res.status(200).json({
       message: 'Appointment status updated',
-      appointment,
+      appointment
     });
   } catch (error) {
     console.error('❌ Failed to update appointment status:', error);
     res.status(500).json({ message: 'Failed to update appointment status', error });
   }
 };
+
