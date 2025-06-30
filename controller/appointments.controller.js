@@ -75,26 +75,78 @@ exports.updateAppointment = async (req, res) => {
 }
 
 
+
 exports.deleteBooking = async (req, res) => {
   try {
     const appointmentDetailsId = req.params.id;
 
-    const deletedAppointmentDetails = await Appointments.findByIdAndDelete(appointmentDetailsId);
-
-    if (!deletedAppointmentDetails) {
+    // Find the appointment before deleting
+    const appointment = await Appointments.findById(appointmentDetailsId);
+    if (!appointment) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
-    await User.findByIdAndUpdate(
-      req.user.userId,
-      { $pull: { appointments: appointmentDetailsId } }
-    );
-    res.status(200).json({ message: 'Booking deleted successfully', Appointment: deletedAppointmentDetails });
-    console.log("Appointment deleted successfully");
+
+    // Delete the appointment
+    await Appointments.findByIdAndDelete(appointmentDetailsId);
+
+    // Fetch the user
+    const user = await User.findById(req.user.userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const isApproved = user.approvedAppointments.includes(appointmentDetailsId);
+
+    // Remove from appointments and optionally approvedAppointments
+    const updateFields = {
+      $pull: { appointments: appointmentDetailsId },
+      $push: { userDeletedAppointments: appointment }
+    };
+
+    if (isApproved) {
+      updateFields.$pull.approvedAppointments = appointmentDetailsId;
+    }
+
+    await User.findByIdAndUpdate(req.user.userId, updateFields);
+
+    // Send notification to user
+    let userNotificationMsg = `Your appointment with Dr. ${appointment.doctor} on ${appointment.date.toDateString()} has been deleted.`;
+    if (isApproved) {
+      userNotificationMsg += ` Note: This was an approved appointment.`;
+    }
+
+    sendNotificationToUser(user.email, userNotificationMsg);
+
+    // Notify all admins if it was an approved appointment
+    if (isApproved) {
+      const admins = await User.find({ role: 'admin' });
+
+      const adminNotification = {
+        message: `Approved appointment with Dr. ${appointment.doctor} on ${appointment.date.toDateString()} was deleted by ${user.name}.`,
+        date: new Date(),
+        read: false
+      };
+
+      for (const admin of admins) {
+        admin.notifications.push(adminNotification);
+        await admin.save();
+      }
+    }
+
+    res.status(200).json({
+      message: 'Booking deleted successfully.',
+      deletedAppointment: appointment,
+      adminNotified: isApproved
+    });
+
+    console.log("✅ Appointment deleted and archived. Admin notified:", isApproved);
+
+  } catch (error) {
+    console.error("❌ Error deleting appointment:", error);
+    res.status(500).json({ message: 'Error deleting appointment', error });
   }
-  catch (error) {
-    res.status(500).json({ message: 'Error deleting  appointment ', error });
-  }
-}
+};
 
 
 
@@ -202,3 +254,19 @@ exports.updateAppointmentStatus = async (req, res) => {
   }
 };
 
+exports.getUserDeletedAppointments = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).populate('userDeletedAppointments');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({
+      userDeletedAppointments: user.userDeletedAppointments
+    });
+  } catch (error) {
+    console.error('Error fetching deleted appointments:', error);
+    res.status(500).json({ message: 'Error fetching deleted appointments', error });
+  }
+};

@@ -10,6 +10,15 @@ const adminSchema = new mongoose.Schema({
     enum: ['admin'],
     default: 'admin'
   },
-  key: String
+  key: String,
+  notifications: [
+    {
+      message: String,
+      date: { type: Date, default: Date.now },
+      read: { type: Boolean, default: false }
+    }
+  ]
+}, {
+  timestamps: true
 });
 module.exports = mongoose.model('Admin', adminSchema);
